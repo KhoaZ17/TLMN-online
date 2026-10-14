@@ -405,6 +405,7 @@ class TLMNAppController:
             return {"status": "error"}
         current_p = self.env.current_turn
         legal_actions = self.env.get_legal_actions(current_p)
+        hand = self.env.hands.get(current_p, [])
         action_idx = ai_absolute_memory_choice(
             legal_actions,
             hand,
