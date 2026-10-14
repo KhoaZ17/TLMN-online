@@ -2,9 +2,12 @@ import json
 import itertools
 import time
 import sqlite3
+import uuid
+import random
+import tlmn_rules
+import os
 from tlmn_rules import card_info, tlmn_dict_deck
 from tlmn_sample_env import TLMNSampleEnv
-import tlmn_rules
 
 
 def ai_heuristic_smart_choice(legal_actions, hand, last_combo=None, joker_mode=False, other_hands_lens=None, seen_cards=None):
