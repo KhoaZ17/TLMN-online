@@ -7,63 +7,167 @@ from tlmn_sample_env import TLMNSampleEnv
 import tlmn_rules
 
 
-def ai_absolute_memory_choice(legal_actions, hand, last_combo=None, joker_mode=False):
+def ai_heuristic_smart_choice(legal_actions, hand, last_combo=None, joker_mode=False, other_hands_lens=None, seen_cards=None):
     """
-    Thuật toán Heuristic nâng cao giúp Bot đưa ra quyết định thông minh hơn:
-    - Giữ lại Heo và Hàng trừ khi cần thiết.
-    - Ưu tiên xả rác nhỏ/bộ nhỏ khi mở vòng.
-    - Bỏ lượt thông minh khi đối thủ đánh bài quá lớn để tiết kiệm lực lượng.
-    - Dứt điểm nhanh khi sắp hết bài.
+    Thuật toán Heuristic thông minh cấp cao cho Bot (Bản hoàn thiện chuẩn cao thủ thực chiến):
+    - 0. Ưu tiên tuyệt đối: Nước đi nào đánh sạch bài (về nhất) -> Chọn ngay lập tức.
+    - 1. Phản xạ tàn cuộc (Đối thủ còn <= 2 lá): Chặn đầu bằng Heo thật, hóa Joker thành Heo, đánh bài lẻ từ Lớn xuống Bé.
+    - 2. Trạng thái Tenpai linh hoạt: Mở vòng xả ngay combo dài (>= 5 lá) nếu phần bài còn lại rất ít (<= 2 lá).
+    - 3. Kỹ năng chờ đợi & Đọc nhịp: Ém đôi lớn (K, Q) khi các quân Ách chưa ra hết; cất kỹ Heo đen.
+    - 4. Xé Hàng & Tránh sảnh xấu: Phân rã Tứ quý / Đôi thông có tính toán khi kẹt cứng, bảo vệ hệ sinh thái bài.
+    - 5. Mở vòng & Đè bài thông minh: Xả rác nhỏ/trung bình, nhẫn nhịn pass đúng lúc, giữ bài kiểm soát.
     """
+    if seen_cards is None:
+        seen_cards = []
+    if other_hands_lens is None:
+        other_hands_lens = []
+
+    # 0. ƯU TIÊN TUYỆT ĐỐI: Nước đi nào đánh sạch bài (hết sạch trên tay) thì quăng ngay lập tức!
+    for idx, act in enumerate(legal_actions):
+        if len(act) > 0 and len(act) == len(hand):
+            return idx
+
     playable = [act for act in legal_actions if len(act) > 0]
+    has_pass = [] in legal_actions
+
     if not playable:
         return legal_actions.index([])
 
-    # Nếu trên bàn chưa có bài (Bot mở vòng mới)
+    # Kiểm tra xem có đối thủ nào đang cực kỳ nguy hiểm (còn <= 2 lá) không
+    opponent_danger = any(l <= 2 for l in other_hands_lens) if other_hands_lens else False
+    opponent_one_card = any(l == 1 for l in other_hands_lens) if other_hands_lens else False
+
+    # Đếm số lượng quân Ách (Rank 14) đã xuất hiện trên bàn để quyết định có ém đôi K, Q không
+    seen_aces_count = sum(
+        1 for c in seen_cards if not c.startswith("X") and tlmn_dict_deck.get(c, {}).get("rank") == 14)
+
+    # Hàm phụ trợ phân tích tính chất nước đi
+    def get_action_details(act):
+        ranks = [tlmn_dict_deck.get(c, {}).get("rank", 0) for c in act if not c.startswith("X")]
+        max_rank = max(ranks) if ranks else 0
+        min_rank = min(ranks) if ranks else 0
+        is_pig = any(r == 15 for r in ranks)
+        is_black_pig = any(c in ["2♠", "2♣"] for c in act)
+        is_red_pig = any(c in ["2♦", "2♥"] for c in act)
+        is_joker = any(c.startswith("X") for c in act)
+        is_hang = len(act) >= 4 or (len(act) == 2 and max_rank == 15) or is_joker
+        return {
+            "len": len(act),
+            "max_rank": max_rank,
+            "min_rank": min_rank,
+            "is_pig": is_pig,
+            "is_black_pig": is_black_pig,
+            "is_red_pig": is_red_pig,
+            "is_joker": is_joker,
+            "is_hang": is_hang,
+            "is_high_pair": (len(act) == 2 and max_rank in [12, 13])  # Đôi Q, K
+        }
+
+    # TÀN CUỘC KHẨN CẤP: Khi có đối thủ còn 1-2 lá
+    if opponent_danger and last_combo is None:
+        # Ưu tiên quăng Heo đỏ hoặc hóa Joker thành Heo nếu có thể mở vòng chặn đầu
+        pig_actions = [act for act in playable if
+                       get_action_details(act)["is_pig"] or (joker_mode and any(c.startswith("X") for c in act))]
+        if pig_actions:
+            pig_actions.sort(
+                key=lambda x: max([tlmn_dict_deck.get(c, {}).get("power", 0) for c in x if c in tlmn_dict_deck] or [0]),
+                reverse=True)
+            return legal_actions.index(pig_actions[0])
+
+    # 1. KHI ĐƯỢC QUYỀN MỞ VÒNG (Bàn đang trống)
     if last_combo is None:
-        # 1. Ưu tiên đánh Sảnh / Đôi thông lớn nhất trước nếu có
-        chains = [act for act in playable if len(act) >= 3 and not any(tlmn_dict_deck[c]["rank"] == 15 for c in act if not c.startswith("X"))]
-        if chains:
-            # Chọn sảnh/chuỗi lá nhỏ nhất trước
-            chains.sort(key=lambda x: min(tlmn_dict_deck[c]["power"] for c in x if c in tlmn_dict_deck))
-            return legal_actions.index(chains[0])
+        # Tenpai linh hoạt: Nếu có combo dài/lớn (>= 5 lá) mà xả xong còn <= 2 lá trên tay -> Quăng ngay
+        for act in playable:
+            if len(act) >= 5 and (len(hand) - len(act)) <= 2:
+                return legal_actions.index(act)
 
-        # 2. Ưu tiên đánh Bộ (Đôi / Xám) có giá trị thấp
-        multi_cards = [act for act in playable if len(act) in [2, 3] and not any(tlmn_dict_deck[c]["rank"] == 15 for c in act if not c.startswith("X"))]
-        if multi_cards:
-            multi_cards.sort(key=lambda x: min(tlmn_dict_deck[c]["power"] for c in x if c in tlmn_dict_deck))
-            return legal_actions.index(multi_cards[0])
+        if len(hand) <= 5:
+            playable.sort(key=lambda x: (
+            len(x), max([tlmn_dict_deck.get(c, {}).get("power", 0) for c in x if c in tlmn_dict_deck] or [0])),
+                          reverse=True)
+            return legal_actions.index(playable[0])
 
-        # 3. Đánh lá rác nhỏ nhất (loại trừ Heo)
-        singles = [act for act in playable if len(act) == 1 and tlmn_dict_deck.get(act[0], {}).get("rank") != 15]
+        safe_playable = []
+        deconstruction_playable = []
+
+        for act in playable:
+            details = get_action_details(act)
+            # Kỹ năng chờ đợi: Nếu là đôi Q hoặc K mà Ách chưa ra đủ (seen_aces_count < 2), tạm ém lại không mở vòng bằng nó
+            if details["is_high_pair"] and seen_aces_count < 2:
+                continue
+            # Tránh đi Heo đen lẻ khi mở vòng
+            if details["is_black_pig"] and len(act) == 1:
+                continue
+
+            if not details["is_hang"] or len(act) >= 4:
+                safe_playable.append(act)
+            else:
+                deconstruction_playable.append(act)
+
+        target_pool = safe_playable if safe_playable else playable
+
+        # Lọc rác lẻ (ưu tiên tống rác nhỏ/trung bình, tuyệt đối không đi rác Ách, Heo, Joker)
+        singles = [
+            act for act in target_pool
+            if len(act) == 1
+               and not tlmn_dict_deck.get(act[0], {}).get("rank") in [14, 15]
+               and not act[0].startswith("X")
+        ]
+
+        # Các bộ nhỏ/trung bình (đôi nhỏ, sảnh nhỏ không phá vỡ hệ sinh thái)
+        small_combos = [
+            act for act in target_pool
+            if len(act) >= 2 and not any(
+                tlmn_dict_deck.get(c, {}).get("rank", 0) >= 13 for c in act if not c.startswith("X"))
+               and not any(c.startswith("X") for c in act)
+        ]
+
         if singles:
-            singles.sort(key=lambda x: tlmn_dict_deck[x[0]]["power"])
+            # Nếu đối thủ sắp về (1 lá), cóc bài từ trung bình tăng dần lên cao thay vì cóc lá quá nhỏ
+            if opponent_one_card:
+                singles.sort(key=lambda x: tlmn_dict_deck.get(x[0], {}).get("power", 0))
+            else:
+                singles.sort(key=lambda x: tlmn_dict_deck.get(x[0], {}).get("power", 0))
             return legal_actions.index(singles[0])
 
-        # Nếu chỉ còn Heo hoặc Hàng thì đánh bộ ngắn nhất
-        playable.sort(key=len)
-        return legal_actions.index(playable[0])
+        if small_combos:
+            small_combos.sort(
+                key=lambda x: min(tlmn_dict_deck.get(c, {}).get("power", 0) for c in x if c in tlmn_dict_deck))
+            return legal_actions.index(small_combos[0])
 
-    # Nếu phải đè bài người chơi khác (Đã có last_combo)
-    target_rank = tlmn_dict_deck.get(last_combo.get("highest_card", ""), {}).get("rank", 0)
+        target_pool.sort(key=len)
+        return legal_actions.index(target_pool[0])
 
-    # Nếu bài đối thủ quá lớn (Ví dụ: Ách A trở lên) và nước đi duy nhất phải dùng Heo/Hàng
-    # Bot cân nhắc bỏ lượt 60% thời gian nếu còn nhiều bài trên tay
-    if target_rank >= 14 and len(hand) > 4 and [] in legal_actions:
-        # Nếu chỉ đè bằng 1 lá Heo lẻ thì nhường vòng
-        only_pigs = [act for act in playable if len(act) == 1 and tlmn_dict_deck.get(act[0], {}).get("rank") == 15]
-        if only_pigs and random.random() < 0.6:
-            return legal_actions.index([])
+    # 2. KHI PHẢI ĐÈ BÀI (Có last_combo trên bàn)
+    target_card = last_combo.get("highest_card", "")
+    target_rank = tlmn_dict_deck.get(target_card, {}).get("rank", 0)
 
-    # Tìm nước đi hợp lệ có sức mạnh (power) thấp nhất vừa đủ đè
     def get_action_power(act):
         powers = [tlmn_dict_deck[c]["power"] for c in act if c in tlmn_dict_deck]
         return max(powers) if powers else 0
 
     playable.sort(key=get_action_power)
-    best_action = playable[0]
-    return legal_actions.index(best_action)
 
+    # Chế độ xả nợ khẩn cấp khi đối thủ còn đúng 1 lá: Đánh bài lẻ từ Lớn xuống Bé hoặc xả Heo/Joker
+    if opponent_one_card:
+        pig_joker_counters = [act for act in playable if
+                              get_action_details(act)["is_pig"] or get_action_details(act)["is_joker"]]
+        if pig_joker_counters:
+            pig_joker_counters.sort(key=get_action_power, reverse=True)
+            return legal_actions.index(pig_joker_counters[0])
+
+    # Nhẫn nhịn (Pass) hợp lý khi bài đối thủ nhỏ và bot còn nhiều bài
+    if target_rank <= 11 and len(hand) > 4 and has_pass and not opponent_danger:
+        if random.random() < 0.7:
+            return legal_actions.index([])
+
+    # Ưu tiên đè bằng bài thường, bảo vệ tối đa Hàng và Joker
+    non_hang_playable = [act for act in playable if not get_action_details(act)["is_hang"]]
+    if non_hang_playable and len(hand) > 2:
+        non_hang_playable.sort(key=get_action_power)
+        return legal_actions.index(non_hang_playable[0])
+
+    return legal_actions.index(playable[0])
 
 def is_pig_or_hang(combo: dict) -> bool:
     """Kiểm tra một combo bài trên bàn có phải là Heo hoặc Hàng (bất kể hàng nào) hay không."""
@@ -407,12 +511,16 @@ class TLMNAppController:
         legal_actions = self.env.get_legal_actions(current_p)
         hand = self.env.hands.get(current_p, [])
         last_combo = self.env.last_combo
-        
-        action_idx = ai_absolute_memory_choice(
+        other_hands_lens = [len(self.env.hands[p]) for p in range(self.env.num_players) if p != current_p]
+        seen_cards = self.env.discarded_cards
+
+        action_idx = ai_heuristic_smart_choice(
             legal_actions,
             hand,
             last_combo=last_combo,
-            joker_mode=self.env.joker_mode
+            joker_mode=self.env.joker_mode,
+            other_hands_lens=other_hands_lens,
+            seen_cards=seen_cards
         )
         return self.play_action(current_p, legal_actions[action_idx])
 
