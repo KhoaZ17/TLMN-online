@@ -2,7 +2,7 @@ import json
 import itertools
 import time
 import sqlite3
-from tlmn_rules import card_info
+from tlmn_rules import card_info, tlmn_dict_deck
 from tlmn_sample_env import TLMNSampleEnv
 import tlmn_rules
 
