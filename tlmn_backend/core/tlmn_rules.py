@@ -897,8 +897,8 @@ def parse_combo_tlmn(chosen_cards: list[str], joker_mode: bool = False, last_com
         rank = tlmn_dict_deck[best_highest_card]["rank"]
         is_bomb = False
 
-        # Trích xuất danh sách các lá Heo thật được sử dụng
-        used_heo = [c for c in real_cards if tlmn_dict_deck[c]["rank"] == 15]
+        # Lấy danh sách Heo từ bộ bài ĐÃ BIẾN HÌNH (final_transformed) thay vì chỉ lấy bài thật
+        used_heo = [c for c in final_transformed if tlmn_dict_deck[c]["rank"] == 15]
 
         # Heo (Rank 15): 1 Heo, Đôi Heo, hoặc 3 Heo (nếu có Joker)
         if rank == 15 and n in [1, 2]:
@@ -1256,12 +1256,13 @@ def get_joker_options(chosen_cards: list[str], joker_mode: bool = False, last_co
         if h_card:
             rank = tlmn_dict_deck[h_card]["rank"]
             is_bomb = False
-            used_heo = [c for c in real_cards if tlmn_dict_deck[c]["rank"] == 15]
-
+            
             if rank == 15 and n in [1, 2, 3]:
                 is_bomb = True
             elif c_type in ["FOUR_OF_A_KIND", "3_PAIRS_CHAIN", "4_PAIRS_CHAIN", "5_PAIRS_CHAIN"]:
                 is_bomb = True
+
+            used_heo = [c for c in real_cards if tlmn_dict_deck[c]["rank"] == 15]
 
             parsed_option = {
                 "is_valid": True,
