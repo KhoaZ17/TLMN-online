@@ -1,0 +1,33 @@
+--- tlmn_multiplayer_web_env.py (của bạn)
++++ tlmn_multiplayer_web_env.py (bản mới)
+@@ -54,6 +54,8 @@
+ 
+         self.chip_transfers: List[dict] = []
+         self.penalty_details: Dict[int, dict] = {}
++        # Thông tin nước đánh cuối cùng của người thắng (hết bài): frontend dùng để hiện nhãn "ĐÚT 3♠" phía trên lá 3♠ đó.
++        self.winning_play = None
+ 
+         # Lấy số dư thực tế từ tài khoản người chơi trong Database truyền vào
+         self.accumulated_rewards = {}
+@@ -131,6 +133,7 @@
+ 
+         self.chip_transfers = []
+         self.penalty_details = {}
++        self.winning_play = None
+ 
+         self.pending_chop_victim = None
+         self.pending_chop_winner = None
+@@ -314,6 +317,13 @@
+ 
+             # LƯU LẠI BÀI ĐÁNH CUỐI CÙNG TRƯỚC KHI DỌN BÀN CHỐT VÒNG
+             winning_combo = self.last_combo
++            self.winning_play = {
++                "owner": p,
++                "combo_type": winning_combo.get("combo_type") if winning_combo else None,
++                "cards": list(display_cards),
++                "played_cards": list(chosen_cards),
++                "is_dut_3_spade": bool(winning_combo and winning_combo.get("combo_type") == "SINGLE" and winning_combo.get("highest_card") == "3♠"),
++            }
+ 
+             self._end_round(step_rewards)
+ 
